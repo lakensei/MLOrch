@@ -6,21 +6,21 @@ import cv2
 import numpy as np
 import uvicorn
 from fastapi import FastAPI
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from starlette.responses import JSONResponse
 
-from onnx_service.rapidocr_onnxruntime.ch_structure_v2_layout.structure_layout import StructureLayout
+from onnx_service.rapidocr_onnxruntime.ch_ppocr_v3_det.text_detect import TextDetector
 from onnx_service.rapidocr_onnxruntime.utils import read_yaml
 
 app = FastAPI()
 
 ROOT_PATH = Path(__file__).resolve().parent
-CONFIG_PATH = ROOT_PATH.joinpath("rapidocr_onnxruntime").joinpath("ch_structure_v2_layout")
+CONFIG_PATH = ROOT_PATH.joinpath("rapidocr_onnxruntime").joinpath("ch_ppocr_v3_det")
 config: Dict[str, Any] = read_yaml(CONFIG_PATH / "config.yaml")
-MODEL_PATH = ROOT_PATH / "model" / "picodet_layout.onnx"
+
+MODEL_PATH = ROOT_PATH / "model" / "det_model.onnx"
 config["model_path"] = MODEL_PATH
-# config["use_cuda"] = True
-ort_session = StructureLayout(config)
+ort_session = TextDetector(config)
 
 
 def preprocess_image(image_base64: str) -> np.ndarray:
@@ -36,19 +36,20 @@ def preprocess_image(image_base64: str) -> np.ndarray:
 
 
 class ModelReq(BaseModel):
-    image: str = Field(..., title='base64格式图片')
+    image: str
 
 
 @app.get("/")
 async def root():
-    return JSONResponse(content={"data": "PaddleOCR layout model"})
+    return JSONResponse(content={"data": "PaddleOCR det model"})
 
 
 @app.post("/ocr")
 async def ocr(data: ModelReq):
     img = preprocess_image(data.image)
-    layout_res, predict_time = ort_session(img)
-    return JSONResponse(content={"data": {"res": layout_res, "time": predict_time}})
+    det_res, predict_time = ort_session(img)
+    res = [{"bbox": tuple((int(box[0][0]), int(box[0][1]), int(box[2][0]), int(box[2][1])))} for box in det_res]
+    return JSONResponse(content={"data": res})
 
 
 if __name__ == "__main__":
